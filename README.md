@@ -15,3 +15,6 @@ Other commands:<br>
 New theme:
 
 <img width="240" height="35" alt="WoW_26-09-26 (14)" src="https://github.com/user-attachments/assets/33e98230-8517-456f-ab10-b6f1d0ca2d70" />
+
+Matches with:
+https://github.com/akzkak/CombatLedger
