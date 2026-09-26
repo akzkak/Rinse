@@ -10,7 +10,8 @@ Other commands:<br>
 ![Rinse](https://github.com/user-attachments/assets/8ede3d8b-7dda-4ccb-96f4-2b69bbb13b05)
 
 
-Fork changelog:
+### Fork changelog
 
 New theme:
+
 <img width="240" height="35" alt="WoW_26-09-26 (14)" src="https://github.com/user-attachments/assets/33e98230-8517-456f-ab10-b6f1d0ca2d70" />
