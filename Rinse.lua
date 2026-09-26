@@ -969,8 +969,253 @@ function Rinse_ToggleLock()
 	RinseFrame:EnableMouse(not RINSE_CONFIG.LOCK)
 end
 
+-- pfUI skin, enabled on load when pfUI is present and RINSE_CONFIG.PFUI is set
+local pfui = false
+
+local PfuiDebuffButtonBackdrop = {
+	bgFile = "Interface\\Buttons\\WHITE8X8",
+	tile = false,
+	tileSize = 0,
+	insets = { left = 5, right = 5, top = 0, bottom = 0 },
+}
+
+-- Ask the addon manager, a pfUI-shaped global can exist without pfUI actually being loaded
+local function PfuiDetected()
+	local ok, loaded = pcall(IsAddOnLoaded, "pfUI")
+	return ok and loaded and pfUI and pfUI.api and pfUI.api.CreateBackdrop and pfUI_config and pfUI_config.appearance and true or false
+end
+
+-- Switch every FontString in a frame tree to pfUI's font, keeping each one's size
+local function PfuiApplyFont(frame)
+	local regions = { frame:GetRegions() }
+	for i = 1, getn(regions) do
+		local region = regions[i]
+		if region.SetFont and region.GetFont then
+			local _, size = region:GetFont()
+			region:SetFont(pfUI.font_default, size or pfUI_config.global.font_size, "OUTLINE")
+		end
+	end
+	local children = { frame:GetChildren() }
+	for i = 1, getn(children) do
+		PfuiApplyFont(children[i])
+	end
+end
+
+-- pfUI's panel background color, fully transparent when hidden
+local function PfuiBackgroundColor(shown)
+	local r, g, b, a = pfUI.api.GetStringColor(pfUI_config.appearance.border.background)
+	return r, g, b, shown and a or 0
+end
+
+local function PfuiSkinDebuffButton(button)
+	if not pfui or button.pfBorder then return end
+	local name = button:GetName()
+	local icon = _G[name.."Icon"]
+	button:SetBackdrop(PfuiDebuffButtonBackdrop)
+	-- Only needs its own background when the main frame's backdrop is off, otherwise the two stack
+	button:SetBackdropColor(PfuiBackgroundColor(not RINSE_CONFIG.BACKDROP))
+	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	-- Flat square behind the icon replaces the Blizzard overlay, colored by debuff type
+	_G[name.."Border"]:Hide()
+	button.pfBorder = button:CreateTexture(nil, "BACKGROUND")
+	button.pfBorder:SetTexture("Interface\\Buttons\\WHITE8X8")
+	button.pfBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -2, 2)
+	button.pfBorder:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 2, -2)
+	PfuiApplyFont(button)
+end
+
+local function PfuiSkinPanel(frame)
+	pfUI.api.StripTextures(frame, true, "BACKGROUND")
+	frame:SetBackdrop(nil)
+	pfUI.api.CreateBackdrop(frame)
+	pfUI.api.CreateBackdropShadow(frame)
+end
+
+local function PfuiSkinButton(button)
+	pfUI.api.StripTextures(button)
+	pfUI.api.SkinButton(button)
+end
+
+local function PfuiSkinCheckBox(checkBox)
+	pfUI.api.SkinCheckbox(checkBox)
+	checkBox.backdrop:ClearAllPoints()
+	pfUI.api.SetAllPointsOffset(checkBox.backdrop, checkBox, 6)
+	-- SkinCheckbox overrides hit rect, restore the one that covers the label
+	checkBox:SetHitRectInsets(0, -120, 5, 5)
+end
+
+local function PfuiSkinScrollFrame(scrollFrame)
+	local name = scrollFrame:GetName()
+	pfUI.api.CreateBackdrop(_G[name.."Background"], nil, true)
+	_G[name.."ScrollBarBorder"]:SetBackdrop(nil)
+	pfUI.api.SkinScrollbar(_G[name.."ScrollBar"])
+end
+
+local function PfuiRestButtonColors(button)
+	button:SetBackdropColor(pfUI.api.GetStringColor(pfUI_config.appearance.border.background))
+	button:SetBackdropBorderColor(pfUI.api.GetStringColor(pfUI_config.appearance.border.color))
+end
+
+-- Small lettered box with a CombatLedger-style tooltip: below the button, white title, grey description
+local function PfuiSkinHeaderButton(button, letter, title, description)
+	pfUI.api.SkinButton(button, nil, nil, nil, nil, true)
+	button:SetWidth(18)
+	button:SetHeight(16)
+	-- Raised-button sheen, same gradient CombatLedger uses
+	local sheen = button:CreateTexture(nil, "ARTWORK")
+	sheen:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
+	sheen:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+	sheen:SetTexture("Interface\\Buttons\\WHITE8X8")
+	if sheen.SetGradientAlpha then
+		sheen:SetGradientAlpha("VERTICAL", 1, 1, 1, 0.12, 1, 1, 1, 0)
+	else
+		sheen:SetVertexColor(1, 1, 1, 0.06)
+	end
+	local label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	label:SetAllPoints(button)
+	label:SetJustifyH("CENTER")
+	local _, size = label:GetFont()
+	label:SetFont(pfUI.font_default, size, "OUTLINE")
+	label:SetText(letter)
+	local onLeave = button:GetScript("OnLeave")
+	button:SetScript("OnEnter", function()
+		this:SetBackdropBorderColor(1, 1, 1, 1)
+		GameTooltip:SetOwner(this, "ANCHOR_BOTTOM")
+		GameTooltip:SetText(title, 1, 1, 1)
+		GameTooltip:AddLine(description, 0.7, 0.7, 0.7)
+		GameTooltip:Show()
+		RinseFrame:SetAlpha(1)
+	end)
+	button:SetScript("OnLeave", function()
+		-- Also resets the pressed color, OnMouseUp can get lost when the click opens a window
+		PfuiRestButtonColors(this)
+		if onLeave then onLeave() end
+	end)
+	button:SetScript("OnMouseDown", function()
+		this:SetBackdropColor(0.05, 0.05, 0.06, 0.9)
+	end)
+	button:SetScript("OnMouseUp", function()
+		this:SetBackdropColor(pfUI.api.GetStringColor(pfUI_config.appearance.border.background))
+	end)
+end
+
+local function PfuiSkinList(frame)
+	local name = frame:GetName()
+	-- Children are named without "Frame", e.g. RinseSkipListFrame -> RinseSkipListClose
+	local prefix = gsub(name, "Frame$", "")
+	PfuiSkinPanel(frame)
+	pfUI.api.SkinCloseButton(_G[prefix.."Close"], frame, -6, -6)
+	PfuiSkinScrollFrame(_G[prefix.."ScrollFrame"])
+	local prev
+	for _, suffix in ipairs({ "AddTarget", "AddGroup", "AddClass", "AddName" }) do
+		local button = _G[prefix..suffix]
+		PfuiSkinButton(button)
+		button:SetWidth(57)
+		button:SetHeight(20)
+		button:ClearAllPoints()
+		if prev then
+			button:SetPoint("LEFT", prev, "RIGHT", 4, 0)
+		else
+			button:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -38)
+		end
+		prev = button
+	end
+	local clear = _G[name.."Clear"]
+	PfuiSkinButton(clear)
+	clear:SetHeight(20)
+	clear:ClearAllPoints()
+	clear:SetPoint("BOTTOM", frame, "BOTTOM", 0, 8)
+end
+
+local function ApplyPfuiSkin()
+	RinseFrameTitle:SetText("")
+	-- Shadow anchors to the backdrop frame, so the backdrop has to exist first
+	RinseFrame:SetBackdrop(nil)
+	pfUI.api.CreateBackdrop(RinseFrame)
+	-- pfUI puts it one level below its owner, keep it level with RinseFrame so it can't sink behind it
+	RinseFrame.backdrop:SetFrameLevel(RinseFrame:GetFrameLevel())
+	pfUI.api.CreateBackdropShadow(RinseFrame)
+	-- Header gets its own bordered backdrop for when the frame backdrop is off
+	RinseFrameHitRect:SetHeight(27)
+	pfUI.api.CreateBackdrop(RinseFrameHitRect)
+	-- CreateBackdrop widens the hit rect by the border size, restore the header's own
+	RinseFrameHitRect:SetHitRectInsets(-5, -5, -5, -5)
+	PfuiSkinHeaderButton(RinseFramePrioListButton, "P", L["Priority List"], L["Players to dispel first"])
+	PfuiSkinHeaderButton(RinseFrameSkipListButton, "S", L["Skip List"], L["Players to never dispel"])
+	PfuiSkinHeaderButton(RinseFrameOptionsButton, "O", L["Options"], L["Open Rinse settings"])
+	-- Right-aligned row with 4px gaps, like CombatLedger's header buttons
+	RinseFrameOptionsButton:ClearAllPoints()
+	RinseFrameOptionsButton:SetPoint("RIGHT", RinseFrameHitRect, "RIGHT", -5, 0)
+	RinseFrameSkipListButton:ClearAllPoints()
+	RinseFrameSkipListButton:SetPoint("RIGHT", RinseFrameOptionsButton, "LEFT", -4, 0)
+	RinseFramePrioListButton:ClearAllPoints()
+	RinseFramePrioListButton:SetPoint("RIGHT", RinseFrameSkipListButton, "LEFT", -4, 0)
+	for i = 1, BUTTONS_MAX do
+		PfuiSkinDebuffButton(_G["RinseFrameDebuff"..i])
+	end
+	PfuiSkinList(RinseSkipListFrame)
+	PfuiSkinList(RinsePrioListFrame)
+	PfuiSkinPanel(RinseOptionsFrame)
+	pfUI.api.SkinCloseButton(RinseOptionsFrameCloseButton, RinseOptionsFrame, -6, -6)
+	for _, suffix in ipairs({ "Scale", "Opacity", "Buttons" }) do
+		pfUI.api.SkinSlider(_G["RinseOptionsFrame"..suffix.."Slider"])
+	end
+	for _, suffix in ipairs({ "WyvernSting", "MutatingInjection", "IgnoreAbolish", "Shadowform", "Pets",
+		"Print", "MSBT", "Sound", "Backdrop", "ShowHeader", "Lock", "PfUI", "Flip",
+		"FilterMagic", "FilterDisease", "FilterPoison", "FilterCurse", "FilterSnare" }) do
+		PfuiSkinCheckBox(_G["RinseOptionsFrame"..suffix])
+	end
+	for _, list in ipairs({ "Filter", "ClassFilter", "Blacklist" }) do
+		PfuiSkinScrollFrame(_G["RinseOptionsFrame"..list.."ScrollFrame"])
+		PfuiSkinButton(_G["RinseOptionsFrameAddTo"..list])
+		PfuiSkinButton(_G["RinseOptionsFrameReset"..list])
+	end
+	pfUI.api.SkinArrowButton(RinseOptionsFrameSelectClass, "down", 16)
+	for _, frame in ipairs({ RinseFrame, RinseSkipListFrame, RinsePrioListFrame, RinseOptionsFrame, RinseMovingButton }) do
+		PfuiApplyFont(frame)
+	end
+end
+
+function Rinse_TogglePfUI()
+	RINSE_CONFIG.PFUI = not RINSE_CONFIG.PFUI
+	ChatFrame1:AddMessage(BLUE.."[Rinse]|r "..L["Type /reload to apply the pfUI skin change."])
+end
+
 local function UpdateBackdrop()
-	if RINSE_CONFIG.BACKDROP then
+	if pfui and RinseFrame.backdrop then
+		-- pfUI's backdrop (and its shadow) live on a child frame, same as pfUI's own windows.
+		-- Undo Rinse's frame scale on it so the border has the exact pfUI size.
+		RinseFrame:SetBackdrop(nil)
+		RinseFrame.backdrop:SetScale(1 / RINSE_CONFIG.SCALE)
+		if RINSE_CONFIG.BACKDROP then
+			RinseFrame.backdrop:Show()
+		else
+			RinseFrame.backdrop:Hide()
+		end
+		-- Without the frame backdrop the header keeps a bordered pfUI backdrop of its own
+		RinseFrameBackground:SetTexture(0, 0, 0, 0)
+		-- Header buttons at pfUI's own size too
+		RinseFramePrioListButton:SetScale(1 / RINSE_CONFIG.SCALE)
+		RinseFrameSkipListButton:SetScale(1 / RINSE_CONFIG.SCALE)
+		RinseFrameOptionsButton:SetScale(1 / RINSE_CONFIG.SCALE)
+		if RinseFrameHitRect.backdrop then
+			RinseFrameHitRect.backdrop:SetScale(1 / RINSE_CONFIG.SCALE)
+			if RINSE_CONFIG.BACKDROP then
+				RinseFrameHitRect.backdrop:Hide()
+			else
+				RinseFrameHitRect.backdrop:Show()
+			end
+		end
+		-- Debuff rows only carry a background when the frame backdrop is off
+		local i = 1
+		while _G["RinseFrameDebuff"..i] do
+			local button = _G["RinseFrameDebuff"..i]
+			if button.pfBorder then
+				button:SetBackdropColor(PfuiBackgroundColor(not RINSE_CONFIG.BACKDROP))
+			end
+			i = i + 1
+		end
+	elseif RINSE_CONFIG.BACKDROP then
 		RinseFrame:SetBackdrop(Backdrop)
 		RinseFrame:SetBackdropBorderColor(1, 1, 1)
 		RinseFrame:SetBackdropColor(0, 0, 0, 0.5)
@@ -997,6 +1242,7 @@ function RinseOptionsFrameScaleSLider_OnValueChanged()
 	RinseDebuffsFrame:SetScale(scale)
 	_G[this:GetName().."Text"]:SetText(format(L.FMT_SCALE, scale))
 	UpdateFramesScale()
+	if pfui then UpdateBackdrop() end
 end
 
 local function UpdateDirection()
@@ -1060,6 +1306,7 @@ local function UpdateNumButtons()
 			if not btn then
 				btn = CreateFrame("Button", "RinseFrameDebuff"..i, RinseDebuffsFrame, "RinseDebuffButtonTemplate")
 			end
+			PfuiSkinDebuffButton(btn)
 			prevBtn = _G["RinseFrameDebuff"..(i - 1)]
 			btn:ClearAllPoints()
 			if not RINSE_CONFIG.FLIP then
@@ -1113,6 +1360,7 @@ end
 
 function RinseFrame_OnLoad()
 	RinseFrame:RegisterEvent("ADDON_LOADED")
+	RinseFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 	RinseFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 	RinseFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 	RinseFrame:RegisterEvent("SPELLS_CHANGED")
@@ -1157,6 +1405,7 @@ function RinseFrame_OnEvent()
 		RINSE_CONFIG.SHADOWFORM = RINSE_CONFIG.SHADOWFORM == nil and true or RINSE_CONFIG.SHADOWFORM
 		RINSE_CONFIG.IGNORE_ABOLISH = RINSE_CONFIG.IGNORE_ABOLISH == nil and true or RINSE_CONFIG.IGNORE_ABOLISH
 		RINSE_CONFIG.PETS = RINSE_CONFIG.PETS == nil and false or RINSE_CONFIG.PETS
+		RINSE_CONFIG.PFUI = RINSE_CONFIG.PFUI == nil and true or RINSE_CONFIG.PFUI
 		RINSE_CHAR_CONFIG.BLACKLIST = RINSE_CHAR_CONFIG.BLACKLIST or {}
 		RINSE_CHAR_CONFIG.FILTER = RINSE_CHAR_CONFIG.FILTER or {
 			[L["Magic"]] = Spells[playerClass][L["Magic"]] == nil,
@@ -1240,6 +1489,7 @@ function RinseFrame_OnEvent()
 			DisableCheckBox(RinseOptionsFrameMSBT)
 			RinseOptionsFrameMSBT.tooltipRequirement = not MikSBT and L["MSBT missing."] or nil
 		end
+		RinseOptionsFramePfUI:SetChecked(RINSE_CONFIG.PFUI)
 		UpdateBackdrop()
 		UpdateFramesScale()
 		UpdateDirection()
@@ -1259,6 +1509,23 @@ function RinseFrame_OnEvent()
 		RinseOptionsFrameAddToBlacklist:SetText(L["Add"])
 		RinseOptionsFrameAddToClassFilter:SetText(L["Add"])
 		RinseOptionsFrameSelectClassText:SetText(ClassColors["WARRIOR"]..L["Warriors"])
+	elseif event == "PLAYER_ENTERING_WORLD" then
+		-- pfUI config is only guaranteed to be loaded once all addons are initialized
+		RinseFrame:UnregisterEvent("PLAYER_ENTERING_WORLD")
+		if PfuiDetected() then
+			EnableCheckBox(RinseOptionsFramePfUI)
+			if RINSE_CONFIG.PFUI then
+				pfui = true
+				local ok, err = pcall(ApplyPfuiSkin)
+				if not ok then
+					ChatFrame1:AddMessage(BLUE.."[Rinse]|r pfUI skin failed: "..tostring(err))
+				end
+				UpdateBackdrop()
+			end
+		else
+			DisableCheckBox(RinseOptionsFramePfUI)
+			RinseOptionsFramePfUI.tooltipRequirement = L["pfUI missing."]
+		end
 	elseif event == "SPELL_QUEUE_EVENT" then
 		if not RINSE_CONFIG.PRINT then return end
 
@@ -1508,7 +1775,7 @@ function RinseFrame_OnUpdate(elapsed)
 			local debuffName = _G["RinseFrameDebuff"..buttonIndex.."Name"]
 			local playerName = _G["RinseFrameDebuff"..buttonIndex.."Player"]
 			local count = _G["RinseFrameDebuff"..buttonIndex.."Count"]
-			local border = _G["RinseFrameDebuff"..buttonIndex.."Border"]
+			local border = button.pfBorder or _G["RinseFrameDebuff"..buttonIndex.."Border"]
 			icon:SetTexture(Debuffs[debuffIndex].texture)
 			debuffName:SetText(name)
 			playerName:SetText(ClassColors[class]..unitName)

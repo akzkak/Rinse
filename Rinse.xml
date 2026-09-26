@@ -661,7 +661,7 @@
 
 	<!-- Options Frame -->
 	<Frame name="RinseOptionsFrame" parent="UIParent" movable="true" enableMouse="true" toplevel="true" frameStrata="DIALOG" hidden="true">
-		<Size x="400" y="660"/>
+		<Size x="400" y="685"/>
 		<Anchors>
 			<Anchor point="CENTER"/>
 		</Anchors>
@@ -955,9 +955,26 @@
 					</OnClick>
 				</Scripts>
 			</CheckButton>
-			<CheckButton name="$parentFlip" inherits="RinseOptionsCheckButtonTemplate">
+			<CheckButton name="$parentPfUI" inherits="RinseOptionsCheckButtonTemplate">
 				<Anchors>
 					<Anchor point="TOPLEFT" relativeTo="$parentLock" relativePoint="BOTTOMLEFT">
+						<Offset x="0" y="7"/>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						getglobal(this:GetName().."Text"):SetText(Rinse.L["Use pfUI Skin"])
+						this.tooltipText = Rinse.L["Match pfUI's look when pfUI is loaded."]
+					</OnLoad>
+					<OnClick>
+						Rinse_TogglePfUI()
+						PlaySound("igMainMenuOptionCheckBoxOn")
+					</OnClick>
+				</Scripts>
+			</CheckButton>
+			<CheckButton name="$parentFlip" inherits="RinseOptionsCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentPfUI" relativePoint="BOTTOMLEFT">
 						<Offset x="0" y="-4"/>
 					</Anchor>
 				</Anchors>

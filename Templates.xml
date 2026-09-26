@@ -230,7 +230,7 @@
 	</Slider>
 	<ScrollFrame name="RinseScrollFrameTemplate" inherits="FauxScrollFrameTemplate" virtual="true">
 		<Frames>
-			<Frame enableMouse="false">
+			<Frame name="$parentBackground" enableMouse="false">
 				<Backdrop bgFile="Interface\Tooltips\UI-Tooltip-Background" edgeFile="Interface\Tooltips\UI-Tooltip-Border" tile="true">
 					<EdgeSize val="16"/>
 					<TileSize val="16"/>
@@ -252,7 +252,7 @@
 					</OnLoad>
 				</Scripts>
 			</Frame>
-			<Frame enableMouse="false">
+			<Frame name="$parentScrollBarBorder" enableMouse="false">
 				<Backdrop edgeFile="Interface\Buttons\UI-SliderBar-Border">
 					<EdgeSize val="8"/>
 				</Backdrop>
